@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Odoo Mayamunay – Anmeldung</title>
+<!--
+  Zustimmungsseite für den Connector „Odoo Mayamunay“ (Supabase Auth als OAuth-Server).
+  Supabase schickt die Person hierher mit ?authorization_id=…  → Anmeldung per E-Mail-Code → Erlauben/Ablehnen.
+  Enthält KEIN Geheimnis: nur die Projekt-Adresse und den öffentlichen Publishable Key (beide dürfen öffentlich sein).
+  Vor dem Hochladen die zwei Platzhalter unten ersetzen (siehe SO-GEHTS.md, Schritt 4).
+-->
+<style>
+  :root { --kakao: #5b3a29; --gold: #b08d57; --creme: #faf6ef; --text: #2e2420; --leise: #7a6a60; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--creme); color: var(--text);
+         font: 17px/1.5 Palatino, "Palatino Linotype", "Book Antiqua", Georgia, serif; }
+  main { width: min(440px, 92vw); background: #fff; border: 1px solid #eadfcd; border-radius: 16px; padding: 28px 26px;
+         box-shadow: 0 6px 30px rgba(91, 58, 41, .08); }
+  h1 { font-size: 1.35rem; margin: 0 0 .3rem; color: var(--kakao); font-weight: normal; }
+  p { margin: .6rem 0; }
+  .leise { color: var(--leise); font-size: .92rem; }
+  label { display: block; margin-top: 1rem; font-size: .95rem; }
+  input { width: 100%; padding: .65rem .8rem; margin-top: .3rem; font: inherit; border: 1px solid #d9cbb5; border-radius: 10px; }
+  button { font: inherit; padding: .65rem 1.1rem; border-radius: 10px; border: 1px solid var(--kakao); cursor: pointer; margin-top: 1rem; }
+  .haupt { background: var(--kakao); color: #fff; }
+  .neben { background: #fff; color: var(--kakao); }
+  .zeile { display: flex; gap: .6rem; flex-wrap: wrap; }
+  .kasten { background: var(--creme); border-radius: 10px; padding: .7rem .9rem; margin: .8rem 0; }
+  .fehler { color: #9b2c2c; }
+  [hidden] { display: none !important; }
+  a { color: var(--kakao); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Odoo Mayamunay</h1>
+  <p class="leise">Anmeldung für den Connector im Dschungel</p>
+
+  <section id="s-laden"><p>Einen Moment …</p></section>
+
+  <section id="s-mail" hidden>
+    <p>Magst du dich mit deiner Mayamunay-Adresse anmelden? Du bekommst einen Code per Mail.</p>
+    <form id="f-mail">
+      <label>E-Mail <input id="mail" type="email" autocomplete="email" required></label>
+      <button class="haupt" type="submit">Code schicken</button>
+    </form>
+  </section>
+
+  <section id="s-code" hidden>
+    <p>Der Code ist unterwegs an <b id="code-an"></b>.</p>
+    <form id="f-code">
+      <label>Code aus der Mail <input id="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+      <div class="zeile">
+        <button class="haupt" type="submit">Anmelden</button>
+        <button class="neben" type="button" id="b-zurueck">Andere Adresse</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="s-frage" hidden>
+    <p>Hallo <b id="hallo"></b>.</p>
+    <div class="kasten">
+      <p><b id="client"></b> möchte in deinem Namen auf Odoo Mayamunay zugreifen.</p>
+      <p class="leise">Rückkehr zu: <span id="ziel"></span></p>
+      <p class="leise" id="scopes"></p>
+    </div>
+    <p class="leise">Lesen ist frei. Änderungen in Odoo laufen immer erst nach deinem Ja, mit deinem Namen im Protokoll. Löschen gibt es nicht.</p>
+    <div class="zeile">
+      <button class="haupt" id="b-ja">Erlauben</button>
+      <button class="neben" id="b-nein">Ablehnen</button>
+    </div>
+    <p class="leise"><a href="#" id="b-ab">Mit anderer Adresse anmelden</a></p>
+  </section>
+
+  <section id="s-nicht-team" hidden>
+    <p>Die Adresse <b id="nt-mail"></b> steht noch nicht im Team.</p>
+    <p class="leise">Magst du Yilmaz um eine Einladung bitten? Danach klappt die Anmeldung.</p>
+    <button class="neben" id="b-ab2">Mit anderer Adresse anmelden</button>
+  </section>
+
+  <p id="meldung" class="fehler" hidden></p>
+</main>
+
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+  // ---- Platzhalter ersetzen (öffentlich, kein Geheimnis) ----
+  const SUPABASE_URL = 'https://finhwtlbsavrwllrxcdm.supabase.co';
+  const PUBLISHABLE_KEY = 'sb_publishable_tvz9nekTzhIo3o9QT058GQ_KG1w_EUx';
+  // -----------------------------------------------------------
+
+  const sb = createClient(SUPABASE_URL, PUBLISHABLE_KEY, { auth: { persistSession: true, detectSessionInUrl: false } });
+  const $ = (id) => document.getElementById(id);
+  const zeigen = (id) => { for (const s of document.querySelectorAll('main > section')) s.hidden = s.id !== id; };
+  const melden = (t) => { $('meldung').textContent = t || ''; $('meldung').hidden = !t; };
+  const authId = new URLSearchParams(location.search).get('authorization_id');
+  let mail = '';
+
+  async function weiter() {
+    melden('');
+    if (!authId) { zeigen(''); melden('Diese Seite wird von Claude aus geöffnet, wenn du den Connector verbindest. Es fehlt die authorization_id.'); return; }
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { zeigen('s-mail'); return; }
+
+    // Steht die Person im Team? (RLS: nur Team-Mitglieder sehen die Tabelle)
+    const ich = session.user.email.toLowerCase();
+    const { data: team } = await sb.from('team').select('name').eq('email', ich).eq('aktiv', true);
+    if (!team || !team.length) { $('nt-mail').textContent = ich; zeigen('s-nicht-team'); return; }
+
+    const { data, error } = await sb.auth.oauth.getAuthorizationDetails(authId);
+    if (error) { zeigen(''); melden('Die Anfrage ist abgelaufen oder ungültig. Bitte in Claude erneut auf „Verbinden“ klicken. (' + error.message + ')'); return; }
+    if (data && data.redirect_url && !data.authorization_id) { location.href = data.redirect_url; return; } // schon erlaubt
+    $('hallo').textContent = team[0].name;
+    $('client').textContent = data?.client?.name || data?.client?.client_name || 'Claude';
+    try { $('ziel').textContent = new URL(data.redirect_uri).host; } catch { $('ziel').textContent = data?.redirect_uri || '–'; }
+    $('scopes').textContent = data?.scope ? 'Berechtigungen: ' + data.scope.split(' ').join(', ') : '';
+    zeigen('s-frage');
+  }
+
+  $('f-mail').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    mail = $('mail').value.trim().toLowerCase();
+    const { error } = await sb.auth.signInWithOtp({ email: mail, options: { shouldCreateUser: false } });
+    if (error) { melden('Das hat nicht geklappt: ' + error.message + ' – steht die Adresse schon im Team?'); return; }
+    $('code-an').textContent = mail; zeigen('s-code'); melden('');
+  });
+
+  $('f-code').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const { error } = await sb.auth.verifyOtp({ email: mail, token: $('code').value.trim(), type: 'email' });
+    if (error) { melden('Der Code passt nicht oder ist abgelaufen.'); return; }
+    weiter();
+  });
+
+  $('b-zurueck').addEventListener('click', () => { zeigen('s-mail'); melden(''); });
+
+  async function entscheiden(ja) {
+    const f = ja ? sb.auth.oauth.approveAuthorization : sb.auth.oauth.denyAuthorization;
+    const { data, error } = await f.call(sb.auth.oauth, authId);
+    if (error) { melden('Das hat nicht geklappt: ' + error.message); return; }
+    location.href = data.redirect_url;
+  }
+  $('b-ja').addEventListener('click', () => entscheiden(true));
+  $('b-nein').addEventListener('click', () => entscheiden(false));
+
+  async function abmelden(e) { e?.preventDefault(); await sb.auth.signOut(); zeigen('s-mail'); }
+  $('b-ab').addEventListener('click', abmelden);
+  $('b-ab2').addEventListener('click', abmelden);
+
+  weiter().catch((e) => melden('Unerwarteter Fehler: ' + e.message));
+</script>
+</body>
+</html>
